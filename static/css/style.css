@@ -333,13 +333,68 @@ body {
 .refreshing .sync-icon {
     animation: spin 1s linear infinite;
 }
-
 @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
 }
+.export-button {
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    color: var(--text-primary);
+    padding: 0.8rem 1rem;
+    font-family: var(--font-sans);
+    font-weight: 600;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.6rem;
+    transition: var(--transition-normal);
+}
+.export-button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: var(--border-hover);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-glow);
+}
+.export-button:active {
+    transform: translateY(1px);
+}
+.export-icon {
+    width: 18px;
+    height: 18px;
+    color: var(--text-secondary);
+}
 
-/* ==========================================================================
+.card-copy-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.3rem;
+    border-radius: 4px;
+    margin-left: 0.2rem;
+    transition: var(--transition-fast);
+}
+.card-copy-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+.card-copy-btn.copied {
+    color: var(--color-feature);
+    background: rgba(16, 185, 129, 0.1);
+}
+.copy-card-icon, .check-card-icon {
+    width: 14px;
+    height: 14px;
+}
+
+/* ========================================================================== */
    Main Content Area (Middle Timeline)
    ========================================================================== */
 .main-content {

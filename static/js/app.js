@@ -14,6 +14,7 @@ const state = {
 const elements = {
     timelineContainer: document.getElementById('timeline-container'),
     refreshBtn: document.getElementById('refresh-btn'),
+    exportCsvBtn: document.getElementById('export-csv-btn'),
     lastUpdatedTime: document.getElementById('last-updated-time'),
     searchInput: document.getElementById('search-input'),
     filterBtns: document.querySelectorAll('.filter-btn'),
@@ -60,6 +61,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Event Listeners
     elements.refreshBtn.addEventListener('click', () => fetchReleases(true));
+    elements.exportCsvBtn.addEventListener('click', exportToCSV);
     elements.errorRetryBtn.addEventListener('click', () => fetchReleases(true));
     elements.clearFiltersBtn.addEventListener('click', resetFilters);
     
@@ -358,6 +360,15 @@ function renderTimeline() {
                 </div>
                 <div class="card-meta">
                     <span class="category-badge badge-${update.type.toLowerCase()}">${update.type}</span>
+                    <button class="card-copy-btn" title="Copy Release Note to Clipboard">
+                        <svg class="copy-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                        </svg>
+                        <svg class="check-card-icon hidden" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </button>
                     <span class="tweet-action-indicator">
                         <svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor">
                             <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
@@ -368,10 +379,36 @@ function renderTimeline() {
                 <div class="update-body">${update.contentHtml}</div>
             `;
             
+            // Card Copy Button Handler
+            const copyBtn = card.querySelector('.card-copy-btn');
+            copyBtn.addEventListener('click', async (event) => {
+                event.stopPropagation(); // Prevent toggling selection
+                
+                const plainText = stripHtml(update.contentHtml).replace(/\s+/g, ' ').trim();
+                const copyText = `BigQuery ${update.type} (${update.date}):\n\n${plainText}\n\nLink: ${update.link}`;
+                
+                try {
+                    await navigator.clipboard.writeText(copyText);
+                    
+                    // Visual feedback
+                    copyBtn.classList.add('copied');
+                    copyBtn.querySelector('.copy-card-icon').classList.add('hidden');
+                    copyBtn.querySelector('.check-card-icon').classList.remove('hidden');
+                    
+                    setTimeout(() => {
+                        copyBtn.classList.remove('copied');
+                        copyBtn.querySelector('.copy-card-icon').classList.remove('hidden');
+                        copyBtn.querySelector('.check-card-icon').classList.add('hidden');
+                    }, 2000);
+                } catch (err) {
+                    console.error('Clipboard copy failed:', err);
+                }
+            });
+            
             // Selecting card sets up Composer
             card.addEventListener('click', (e) => {
-                // Prevent trigger if clicking on anchors
-                if (e.target.tagName === 'A' || e.target.closest('a')) {
+                // Prevent trigger if clicking on anchors or copy button
+                if (e.target.tagName === 'A' || e.target.closest('a') || e.target.closest('.card-copy-btn')) {
                     return;
                 }
                 selectUpdateForTweet(update, card);
@@ -586,4 +623,41 @@ function showState(mode) {
     } else if (mode === 'timeline') {
         elements.timelineContainer.classList.remove('hidden');
     }
+}
+
+function exportToCSV() {
+    if (state.filteredUpdates.length === 0) {
+        alert("No release notes found to export.");
+        return;
+    }
+    
+    const csvRows = [];
+    // Header Row
+    csvRows.push(['Date', 'Category', 'Description', 'Link'].map(h => `"${h.replace(/"/g, '""')}"`).join(','));
+    
+    // Data Rows
+    state.filteredUpdates.forEach(update => {
+        const date = update.date;
+        const category = update.type;
+        const text = stripHtml(update.contentHtml).replace(/\s+/g, ' ').trim();
+        const link = update.link;
+        
+        const row = [date, category, text, link].map(field => `"${field.replace(/"/g, '""')}"`);
+        csvRows.push(row.join(','));
+    });
+    
+    const csvContent = csvRows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    
+    // Formulate file name with date stamp
+    const datestamp = new Date().toISOString().slice(0, 10);
+    link.setAttribute('href', url);
+    link.setAttribute('download', `bigquery_release_notes_${datestamp}.csv`);
+    link.style.visibility = 'hidden';
+    
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
