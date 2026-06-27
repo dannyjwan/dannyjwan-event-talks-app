@@ -1207,3 +1207,108 @@ input:checked + .slider:before {
         max-width: 100%;
     }
 }
+
+/* ==========================================================================
+   Theme Switcher & Light Theme Overrides
+   ========================================================================= */
+.theme-toggle-container {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.6rem 0.8rem;
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    margin-bottom: 1.5rem;
+}
+.theme-label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+}
+.theme-toggle-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.4rem;
+    border-radius: 50%;
+    transition: var(--transition-fast);
+}
+.theme-toggle-btn:hover {
+    color: var(--text-primary);
+    background: rgba(255, 255, 255, 0.08);
+}
+.theme-icon {
+    width: 20px;
+    height: 20px;
+}
+
+/* Light Theme Variables Overrides */
+body.light-theme {
+    --bg-base: #f1f5f9;
+    --bg-surface: rgba(255, 255, 255, 0.75);
+    --bg-surface-solid: #ffffff;
+    --bg-surface-hover: rgba(241, 245, 249, 0.9);
+    --border-color: rgba(15, 23, 42, 0.08);
+    --border-hover: rgba(15, 23, 42, 0.16);
+    --primary-glow: radial-gradient(circle at top, rgba(99, 102, 241, 0.06), transparent 70%);
+    
+    /* Text Colors */
+    --text-primary: #0f172a;
+    --text-secondary: #334155;
+    --text-muted: #64748b;
+    --text-link: #0284c7;
+    --text-link-hover: #0369a1;
+}
+
+body.light-theme .theme-toggle-container {
+    background: rgba(0, 0, 0, 0.02);
+}
+body.light-theme .theme-toggle-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+body.light-theme .stat-card {
+    background: rgba(0, 0, 0, 0.01);
+}
+body.light-theme .stat-card:hover {
+    background: rgba(0, 0, 0, 0.03);
+}
+body.light-theme .search-box input {
+    background: rgba(255, 255, 255, 0.8);
+    color: var(--text-primary);
+}
+body.light-theme .search-box input:focus {
+    background: #ffffff;
+}
+body.light-theme .filter-btn:hover {
+    background: rgba(0, 0, 0, 0.02);
+}
+body.light-theme .calendar-icon-wrapper {
+    background: #ffffff;
+    border-color: var(--border-color);
+}
+body.light-theme .update-body code {
+    background: rgba(15, 23, 42, 0.06);
+    border-color: rgba(15, 23, 42, 0.04);
+    color: #0f172a;
+}
+body.light-theme .update-body pre {
+    background: #f8fafc;
+    border-color: var(--border-color);
+}
+body.light-theme .update-body pre code {
+    color: #0f172a;
+}
+body.light-theme .option-row {
+    background: rgba(0, 0, 0, 0.01);
+}
+body.light-theme .copy-btn {
+    background: rgba(0, 0, 0, 0.02);
+}
+body.light-theme .copy-btn:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
