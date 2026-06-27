@@ -7,7 +7,8 @@ const state = {
     currentFilter: 'all',
     searchQuery: '',
     includeLink: true,
-    lastUpdated: null
+    lastUpdated: null,
+    lastTweetTruncated: false
 };
 
 // DOM Elements
@@ -58,6 +59,9 @@ const elements = {
 document.addEventListener('DOMContentLoaded', () => {
     // Initialize Theme Switcher
     initThemeToggle();
+
+    // Initialize Keyboard Shortcuts
+    initKeyboardShortcuts();
 
     // Fetch initial data
     fetchReleases();
@@ -128,6 +132,17 @@ document.addEventListener('DOMContentLoaded', () => {
         elements.composerSidebar.classList.add('open');
         elements.mobileBadgeDot.classList.add('hidden');
     });
+
+    // Dismiss composer drawer on backdrop click (for mobile layout width <= 992px)
+    document.addEventListener('click', (e) => {
+        if (window.innerWidth <= 992 && elements.composerSidebar.classList.contains('open')) {
+            if (!elements.composerSidebar.contains(e.target) && 
+                !e.target.closest('.update-card') && 
+                !e.target.closest('.mobile-composer-trigger')) {
+                toggleComposerDrawer();
+            }
+        }
+    });
 });
 
 // ==========================================================================
@@ -136,8 +151,11 @@ document.addEventListener('DOMContentLoaded', () => {
 async function fetchReleases(forceRefresh = false) {
     showState('loading');
     
-    // Rotate sync button
+    // Rotate sync button & update micro-copy
     elements.refreshBtn.classList.add('refreshing');
+    const refreshSpan = elements.refreshBtn.querySelector('span');
+    const originalText = refreshSpan.textContent;
+    refreshSpan.textContent = forceRefresh ? 'Connecting...' : 'Loading...';
     elements.refreshBtn.disabled = true;
     
     try {
@@ -156,26 +174,40 @@ async function fetchReleases(forceRefresh = false) {
         state.lastUpdated = new Date(data.last_updated * 1000);
         
         // Parse raw feed entries into individual updates
+        refreshSpan.textContent = 'Parsing XML...';
         processFeedEntries();
         
         // Render stats & list
+        refreshSpan.textContent = 'Rendering...';
         updateStats();
         applyFilters();
         
-        // Update sync timestamp display
+        // Update sync timestamp display & source freshness badge
         elements.lastUpdatedTime.textContent = formatSyncTime(state.lastUpdated);
+        updateSyncSourceBadge(data.source, data.error);
         
         if (state.updates.length === 0) {
             showState('empty');
         } else {
             showState('timeline');
         }
+
+        // Notify user of sync status
+        if (forceRefresh) {
+            if (data.source === 'fresh') {
+                showToast(`Sync complete! Loaded ${state.updates.length} updates.`, 'success');
+            } else if (data.source === 'cache_fallback_error') {
+                showToast(`Unable to reach server. Loaded fallback cache.`, 'info');
+            }
+        }
     } catch (error) {
         console.error('Fetch Error:', error);
         elements.errorMessage.textContent = error.message;
         showState('error');
+        showToast('Failed to retrieve release notes.', 'info');
     } finally {
         elements.refreshBtn.classList.remove('refreshing');
+        refreshSpan.textContent = originalText;
         elements.refreshBtn.disabled = false;
     }
 }
@@ -198,11 +230,9 @@ function splitEntryIntoUpdates(entry) {
     const doc = parser.parseFromString(entry.content, 'text/html');
     const updates = [];
     
-    // Release notes feeds group updates inside <h3> tags (e.g. <h3>Feature</h3>, <h3>Change</h3>)
     const h3Elements = doc.querySelectorAll('h3');
     
     if (h3Elements.length === 0) {
-        // If there are no H3 elements, wrap the entire entry as an Announcement
         updates.push({
             id: entry.id,
             rawId: entry.id,
@@ -291,7 +321,7 @@ function applyFilters() {
             const dateMatch = update.date.toLowerCase().includes(query);
             const typeMatch = update.type.toLowerCase().includes(query);
             
-            // Text content matching (stripping HTML tags first for clean matching)
+            // Text content matching
             const textContent = stripHtml(update.contentHtml).toLowerCase();
             const contentMatch = textContent.includes(query);
             
@@ -300,17 +330,30 @@ function applyFilters() {
         
         return true;
     });
+
+    // Populate Contextual Empty States details
+    if (state.filteredUpdates.length === 0) {
+        const detailsEl = document.getElementById('empty-state-details');
+        if (detailsEl) {
+            if (state.searchQuery && state.currentFilter !== 'all') {
+                detailsEl.textContent = `No updates matching "${state.searchQuery}" found in the "${state.currentFilter}" category.`;
+            } else if (state.searchQuery) {
+                detailsEl.textContent = `No updates matching "${state.searchQuery}" found.`;
+            } else if (state.currentFilter !== 'all') {
+                detailsEl.textContent = `No updates found under the "${state.currentFilter}" category.`;
+            } else {
+                detailsEl.textContent = "Try adjusting your search query or selecting a different category.";
+            }
+        }
+        showState('empty');
+        return;
+    }
     
     renderTimeline();
 }
 
 function renderTimeline() {
     elements.timelineContainer.innerHTML = '';
-    
-    if (state.filteredUpdates.length === 0) {
-        showState('empty');
-        return;
-    }
     
     showState('timeline');
     
@@ -355,6 +398,10 @@ function renderTimeline() {
                 card.classList.add('selected');
             }
             
+            // Check if update is published within last 48 hours for glowing NEW badge
+            const isNew = isNewUpdate(update.updated);
+            const newBadgeHtml = isNew ? `<span class="new-badge-indicator">New</span>` : '';
+            
             card.innerHTML = `
                 <div class="card-selector">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
@@ -363,6 +410,7 @@ function renderTimeline() {
                 </div>
                 <div class="card-meta">
                     <span class="category-badge badge-${update.type.toLowerCase()}">${update.type}</span>
+                    ${newBadgeHtml}
                     <button class="card-copy-btn" title="Copy Release Note to Clipboard">
                         <svg class="copy-card-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                             <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
@@ -392,8 +440,9 @@ function renderTimeline() {
                 
                 try {
                     await navigator.clipboard.writeText(copyText);
+                    showToast('Note copied to clipboard!', 'success');
                     
-                    // Visual feedback
+                    // Visual button feedback
                     copyBtn.classList.add('copied');
                     copyBtn.querySelector('.copy-card-icon').classList.add('hidden');
                     copyBtn.querySelector('.check-card-icon').classList.remove('hidden');
@@ -471,7 +520,6 @@ function selectUpdateForTweet(update, cardElement) {
     if (window.innerWidth <= 992) {
         elements.mobileComposerTrigger.classList.remove('hidden');
         elements.mobileBadgeDot.classList.remove('hidden');
-        // Let's slide open the drawer directly for optimal user feedback!
         elements.composerSidebar.classList.add('open');
     }
 }
@@ -485,6 +533,16 @@ function updateComposerText() {
     const text = generateTweetText(state.selectedUpdate, state.includeLink);
     elements.tweetTextarea.value = text;
     updateCharCounter(text);
+
+    // Show/hide truncation notice alert
+    const alertEl = document.getElementById('composer-truncation-alert');
+    if (alertEl) {
+        if (state.lastTweetTruncated) {
+            alertEl.classList.remove('hidden');
+        } else {
+            alertEl.classList.add('hidden');
+        }
+    }
 }
 
 function generateTweetText(update, includeLink) {
@@ -501,7 +559,6 @@ function generateTweetText(update, includeLink) {
     });
     
     let plainContent = tempDiv.textContent || tempDiv.innerText || '';
-    // Normalize newlines
     plainContent = plainContent.replace(/\n\s*\n/g, '\n').trim();
     
     const prefix = `BigQuery ${type} (${date}):\n\n`;
@@ -513,9 +570,10 @@ function generateTweetText(update, includeLink) {
     const allowedSnippetLen = targetLimit - reservedLen;
     
     let snippet = plainContent;
+    state.lastTweetTruncated = false;
     if (plainContent.length > allowedSnippetLen) {
-        // Truncate at allowed limit, making space for '...'
         snippet = plainContent.substring(0, allowedSnippetLen - 3) + '...';
+        state.lastTweetTruncated = true;
     }
     
     return `${prefix}${snippet}${suffix}`;
@@ -537,6 +595,7 @@ async function copyTweetToClipboard() {
     const text = elements.tweetTextarea.value;
     try {
         await navigator.clipboard.writeText(text);
+        showToast('Tweet copied to clipboard!', 'success');
         
         // Show success animation state
         elements.copyTweetBtn.classList.add('success');
@@ -628,11 +687,172 @@ function showState(mode) {
     }
 }
 
+function updateSyncSourceBadge(source, errorText = '') {
+    const sourceBadge = document.getElementById('sync-source-badge');
+    if (!sourceBadge) return;
+    
+    sourceBadge.className = 'sync-source-badge';
+    sourceBadge.removeAttribute('title');
+    
+    if (source === 'fresh') {
+        sourceBadge.textContent = 'Live';
+        sourceBadge.classList.add('source-fresh');
+        sourceBadge.title = 'Fetched fresh from the Google Cloud RSS server.';
+    } else if (source === 'cache') {
+        sourceBadge.textContent = 'Cached';
+        sourceBadge.classList.add('source-cache');
+        sourceBadge.title = 'Loaded from server local cache (refreshes every 30 mins).';
+    } else {
+        sourceBadge.textContent = 'Fallback';
+        sourceBadge.classList.add('source-fallback');
+        sourceBadge.title = `Upstream server is unreachable. Loaded fallback cache.\nError: ${errorText}`;
+    }
+}
+
+function isNewUpdate(updateDateStr) {
+    const updateDate = new Date(updateDateStr);
+    const now = new Date();
+    const diffTime = Math.abs(now - updateDate);
+    const diffDays = diffTime / (1000 * 60 * 60 * 24);
+    return diffDays <= 2.0; // considered new if published within 48 hours
+}
+
+// Toast notification helper
+function showToast(message, type = 'info') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    
+    // Choose icon
+    let iconSvg = '';
+    if (type === 'success') {
+        iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"></polyline></svg>`;
+    } else {
+        iconSvg = `<svg class="toast-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>`;
+    }
+    
+    toast.innerHTML = `${iconSvg}<span>${message}</span>`;
+    container.appendChild(toast);
+    
+    // Transition out and remove
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        toast.style.transform = 'translate(0, -10px)';
+        setTimeout(() => {
+            if (container.contains(toast)) {
+                container.removeChild(toast);
+            }
+        }, 300);
+    }, 3200);
+}
+
+// ==========================================================================
+// Interactive Utility & Accessibility Enhancements
+// ==========================================================================
+function initThemeToggle() {
+    const themeToggleBtn = document.getElementById('theme-toggle-btn');
+    if (!themeToggleBtn) return;
+    
+    const sunIcon = themeToggleBtn.querySelector('.sun-icon');
+    const moonIcon = themeToggleBtn.querySelector('.moon-icon');
+    
+    // Check local storage for preference
+    const currentTheme = localStorage.getItem('theme') || 'dark';
+    if (currentTheme === 'light') {
+        document.body.classList.add('light-theme');
+        sunIcon.classList.remove('hidden');
+        moonIcon.classList.add('hidden');
+    }
+    
+    themeToggleBtn.addEventListener('click', () => {
+        const isLight = document.body.classList.toggle('light-theme');
+        localStorage.setItem('theme', isLight ? 'light' : 'dark');
+        
+        if (isLight) {
+            sunIcon.classList.remove('hidden');
+            moonIcon.classList.add('hidden');
+            showToast('Switched to Light mode', 'info');
+        } else {
+            sunIcon.classList.add('hidden');
+            moonIcon.classList.remove('hidden');
+            showToast('Switched to Dark mode', 'info');
+        }
+    });
+}
+
+function initKeyboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        // Ignore if typing inside input/textarea
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) {
+            if (e.key === 'Escape') {
+                e.target.blur();
+            }
+            return;
+        }
+        
+        // Focus search box
+        if (e.key === '/') {
+            e.preventDefault();
+            elements.searchInput.focus();
+            elements.searchInput.select();
+            showToast('Search focused. Start typing...', 'info');
+        }
+        
+        // Clear filters
+        if (e.key === 'Escape') {
+            resetFilters();
+            toggleComposerDrawer();
+            showToast('Filters cleared', 'info');
+        }
+        
+        // Copy selected tweet text
+        if (e.key === 'c' || e.key === 'C') {
+            if (state.selectedUpdate) {
+                copyTweetToClipboard();
+            } else {
+                showToast('Select a card first to copy.', 'info');
+            }
+        }
+        
+        // Keyboard navigation (j/k to navigate cards)
+        if (e.key === 'j' || e.key === 'k') {
+            const cards = Array.from(document.querySelectorAll('.update-card'));
+            if (cards.length === 0) return;
+            
+            e.preventDefault();
+            
+            let currentIndex = -1;
+            if (state.selectedUpdate) {
+                currentIndex = cards.findIndex(c => c.classList.contains('selected'));
+            }
+            
+            let nextIndex = 0;
+            if (e.key === 'j') {
+                nextIndex = currentIndex + 1;
+                if (nextIndex >= cards.length) nextIndex = 0;
+            } else {
+                nextIndex = currentIndex - 1;
+                if (nextIndex < 0) nextIndex = cards.length - 1;
+            }
+            
+            const nextCard = cards[nextIndex];
+            if (nextCard) {
+                nextCard.click();
+                nextCard.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            }
+        }
+    });
+}
+
 function exportToCSV() {
     if (state.filteredUpdates.length === 0) {
-        alert("No release notes found to export.");
+        showToast("No release notes found to export.", 'info');
         return;
     }
+    
+    showToast("Exporting CSV file...", 'info');
     
     const csvRows = [];
     // Header Row
@@ -663,33 +883,4 @@ function exportToCSV() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-}
-
-function initThemeToggle() {
-    const themeToggleBtn = document.getElementById('theme-toggle-btn');
-    if (!themeToggleBtn) return;
-    
-    const sunIcon = themeToggleBtn.querySelector('.sun-icon');
-    const moonIcon = themeToggleBtn.querySelector('.moon-icon');
-    
-    // Check local storage for preference
-    const currentTheme = localStorage.getItem('theme') || 'dark';
-    if (currentTheme === 'light') {
-        document.body.classList.add('light-theme');
-        sunIcon.classList.remove('hidden');
-        moonIcon.classList.add('hidden');
-    }
-    
-    themeToggleBtn.addEventListener('click', () => {
-        const isLight = document.body.classList.toggle('light-theme');
-        localStorage.setItem('theme', isLight ? 'light' : 'dark');
-        
-        if (isLight) {
-            sunIcon.classList.remove('hidden');
-            moonIcon.classList.add('hidden');
-        } else {
-            sunIcon.classList.add('hidden');
-            moonIcon.classList.remove('hidden');
-        }
-    });
 }
